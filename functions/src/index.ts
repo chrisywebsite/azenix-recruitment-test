@@ -16,11 +16,13 @@ const log = (...args: Array<any>): void => {
   functions.logger.info(...args, {structuredData: true});
 };
 
+const shortenUrlFromToken = (token: string): ShortenUrl =>
+  ({token, shortenUrl: `${baseUrl}${token}`});
+
 const generateShortenUrl = (url: string): Promise<ShortenUrl> =>
   shortenUrlsCollection.add({url}).then((result) => {
     const token = result.id;
-    const shortenUrl = `${baseUrl}${token}`;
-    return {token, shortenUrl};
+    return shortenUrlFromToken(token);
   });
 
 const getOriginalUrl = (token: string): Promise<string | undefined> =>
@@ -73,11 +75,17 @@ export const expand = functions.https.onRequest(async (request, response) => {
 
   const [token] = request.path.split("/").filter((_) => !!_);
 
+  if (!token) {
+    response.status(401).send(httpErrorBody(401, "token is not provided"));
+    return;
+  }
+
   log("token:", token);
   const url = await getOriginalUrl(token);
   log("url:", url);
   if (url) {
-    response.send({url});
+    // response.send({url});
+    response.send(shortenUrlFromToken(token));
     return;
   }
 
