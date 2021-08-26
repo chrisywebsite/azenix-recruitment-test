@@ -10,7 +10,21 @@ interface ShortenUrl {
   shortenUrl: string
 }
 
+const hashCode = (s: string): string => {
+  let hash = 0;
+  let i;
+  let chr;
+  if (s.length === 0) return `${hash}`;
+  for (i = 0; i < s.length; i++) {
+    chr = s.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return `${hash}`;
+};
+
 const shortenUrlsCollection = db.collection("shortenUrls");
+const urlsCollection = db.collection("urls");
 
 const log = (...args: Array<any>): void => {
   functions.logger.info(...args, {structuredData: true});
@@ -20,10 +34,15 @@ const shortenUrlFromToken = (token: string): ShortenUrl =>
   ({token, shortenUrl: `${baseUrl}${token}`});
 
 const generateShortenUrl = (url: string): Promise<ShortenUrl> =>
-  shortenUrlsCollection.add({url}).then((result) => {
-    const token = result.id;
-    return shortenUrlFromToken(token);
-  });
+  urlsCollection.doc(hashCode(url)).get().then((snapshot) => {
+    log("snapshot:", snapshot);
+    return snapshot && snapshot.get("token") as string;
+  }).then((existingDoc) =>
+    existingDoc ||
+    shortenUrlsCollection.add({url}).then((result) => {
+      const token = result.id;
+      return urlsCollection.doc(hashCode(url)).set({token}).then(() => token);
+    })).then((token) => shortenUrlFromToken(token));
 
 const getOriginalUrl = (token: string): Promise<string | undefined> =>
   shortenUrlsCollection.doc(token).get().then((result) => result.get("url"));
@@ -39,8 +58,18 @@ const httpErrorBody = (status: number, detail: string): {
   title: detail,
   status,
   detail,
-  instance: "",
+  instance: "something",
 });
+
+const sendError = (resp: any, status: number, error: string): void => {
+  resp.set("Content-Type", "application/json");
+  resp.status(status).send(httpErrorBody(status, error));
+};
+
+const sentResponse = (resp: any, obj: any): void => {
+  resp.set("Content-Type", "application/json");
+  resp.send(obj);
+};
 // Start writing Firebase Functions
 // https://firebase.google.com/docs/functions/typescript
 export const helloWorld = functions.https.onRequest((request, response) => {
@@ -49,46 +78,57 @@ export const helloWorld = functions.https.onRequest((request, response) => {
 });
 
 export const shorten = functions.https.onRequest(async (request, response) => {
-  log("request", request.body);
+  log("request", request.path, ",headers:", request.headers);
+  const key = request.headers["x-user-key"];
+
+  if (!key) {
+    sendError(response, 401, "Not authorized!");
+    return;
+  }
 
   if (!request?.body?.url) {
-    response.status(400).send(httpErrorBody(400, "url is not provided"));
+    sendError(response, 400, "url is not provided");
     return;
   }
 
   try {
-    response.send(await generateShortenUrl(request.body.url));
+    sentResponse(response, await generateShortenUrl(request.body.url));
   } catch (e) {
     log("error: ", e);
-    response.status(500).send(httpErrorBody(500, "something wrong"));
+    response.status(500).send();
   }
 });
 
 
 export const expand = functions.https.onRequest(async (request, response) => {
-  log("request", request.path);
+  log("request", request.path, ",headers:", request.headers);
+  const key = request.headers["x-user-key"];
+
+  if (!key) {
+    sendError(response, 401, "Not authorized!");
+    return;
+  }
 
   if (!request?.path) {
-    response.status(400).send(httpErrorBody(400, "data is not provided"));
+    sendError(response, 400, "data is not provided");
     return;
   }
 
   const [token] = request.path.split("/").filter((_) => !!_);
 
   if (!token) {
-    response.status(401).send(httpErrorBody(401, "token is not provided"));
+    sendError(response, 401, "token is not provided");
     return;
   }
 
   log("token:", token);
-  const url = await getOriginalUrl(token);
-  log("url:", url);
-  if (url) {
-    // response.send({url});
-    response.send(shortenUrlFromToken(token));
+  const expandedUrl = await getOriginalUrl(token);
+  log("url:", expandedUrl);
+  if (expandedUrl) {
+    sentResponse(response, {expandedUrl});
     return;
   }
 
-  response.status(500).send(httpErrorBody(500, "something wrong"));
+  response.status(500).send();
 });
 
