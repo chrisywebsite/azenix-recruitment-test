@@ -74,7 +74,7 @@ const sentResponse = (resp: any, obj: any): void => {
 // eslint-disable-next-line max-len
 const regex = new RegExp("^(http[s]?:\\/\\/(www\\.)?|ftp:\\/\\/(www\\.)?|www\\.){1}([0-9A-Za-z-\\.@:%_+~#=]+)+((\\.[a-zA-Z]{2,3})+)(/(.)*)?(\\?(.)*)?");
 
-const validateUrl = (url: string): boolean => regex.test(url);
+const validateUrl = (url: string): boolean => regex.test(url && url.trim());
 // Start writing Firebase Functions
 // https://firebase.google.com/docs/functions/typescript
 export const helloWorld = functions.https.onRequest((request, response) => {
@@ -121,7 +121,7 @@ export const expand = functions.https.onRequest(async (request, response) => {
 
   const [token] = request.path.split("/").filter((_) => !!_);
 
-  if (!token) {
+  if (!token || token.length === 0) {
     sendError(response, 401, "token is not provided");
     return;
   }
@@ -131,9 +131,8 @@ export const expand = functions.https.onRequest(async (request, response) => {
   log("url:", expandedUrl);
   if (expandedUrl) {
     sentResponse(response, {expandedUrl});
-    return;
+  } else {
+    sendError(response, 404, "provided token is not found");
   }
-
-  response.status(500).send();
 });
 
