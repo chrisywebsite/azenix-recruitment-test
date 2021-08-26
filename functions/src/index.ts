@@ -70,6 +70,11 @@ const sentResponse = (resp: any, obj: any): void => {
   resp.set("Content-Type", "application/json");
   resp.send(obj);
 };
+
+// eslint-disable-next-line max-len
+const regex = new RegExp("^(http[s]?:\\/\\/(www\\.)?|ftp:\\/\\/(www\\.)?|www\\.){1}([0-9A-Za-z-\\.@:%_+~#=]+)+((\\.[a-zA-Z]{2,3})+)(/(.)*)?(\\?(.)*)?");
+
+const validateUrl = (url: string): boolean => regex.test(url);
 // Start writing Firebase Functions
 // https://firebase.google.com/docs/functions/typescript
 export const helloWorld = functions.https.onRequest((request, response) => {
@@ -86,8 +91,8 @@ export const shorten = functions.https.onRequest(async (request, response) => {
     return;
   }
 
-  if (!request?.body?.url) {
-    sendError(response, 400, "url is not provided");
+  if (!request?.body?.url || !validateUrl(request.body.url)) {
+    sendError(response, 400, "url is not provided or incorrect");
     return;
   }
 
